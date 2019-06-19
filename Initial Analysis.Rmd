@@ -1,0 +1,211 @@
+---
+title: "CKME136 Capstone Project"
+author: "Jonathan Glasenberg"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Initial Analysis
+
+```{r}
+#Loading the Data and first glance
+NYC1 <- read.csv("Case-Related_Information_About_Civil_Litigation.csv", header = TRUE, na.strings = c("","NA"))
+
+NYC1<- NYC1[, - c(2,5,17)]
+
+head(NYC1)
+summary(NYC1)
+str(NYC1)
+sum(is.na(NYC1))
+attach(NYC1)
+
+###Initial Cleaning and Inspecting variables
+#Matter Name
+class(NYC1$Matter.Name)
+NYC1$Matter.Name = as.character(NYC1$Matter.Name)
+sum(is.na(NYC1$Matter.Name))
+
+#Court Name
+class(NYC1$Court.Name)
+length(levels(NYC1$Court.Name))
+sum(is.na(NYC1$Court.Name))
+
+#Judge
+class(NYC1$Judge)
+length(levels(NYC1$Judge))
+sum(is.na(NYC1$Judge))
+
+#App Court
+class(NYC1$App.Court)
+length(levels(NYC1$App.Court))
+table(NYC1$App.Court)
+sum(is.na(NYC1$App.Court))
+
+#Plaintiffs
+class(NYC1$Plaintiffs.Petitioners.Firms)
+NYC1$Plaintiffs.Petitioners.Firms <- as.character(NYC1$Plaintiffs.Petitioners.Firms)
+names(NYC1)[5]<- "Plaintiffs"
+sum(is.na(NYC1$Plaintiffs))
+
+#Defendants
+class(NYC1$Defendants.Respondents...Firms)
+NYC1$Defendants.Respondents...Firms <- as.character(NYC1$Defendants.Respondents...Firms)
+names(NYC1)[6]<- "Defendants"
+sum(is.na(NYC1$Defendants))
+
+#LD Division
+class(NYC1$LD.Division)
+levels(NYC1$LD.Division)
+sum(is.na(NYC1$LD.Division))
+
+#Lit Start
+class(NYC1$Lit.Start)
+NYC1$Lit.Start<- as.Date(NYC1$Lit.Start, "%m/%d/%Y")
+sum(is.na(NYC1$Lit.Start))
+
+#Closed Date
+class(NYC1$Closed.Date)
+NYC1$Closed.Date <- as.Date(NYC1$Closed.Date, "%m/%d/%Y")
+sum(is.na(NYC1$Closed.Date))
+
+#Disposition
+class(NYC1$Disposition)
+levels(NYC1$Disposition)
+NYC1$Disposition = as.character(NYC1$Disposition)
+NYC1$Disposition[grepl("Ze", NYC1$Disposition)] = "Zero Disposition"
+NYC1$Disposition <- as.factor(NYC1$Disposition)
+levels(NYC1$Disposition)
+table(NYC1$Disposition)
+plot(table(NYC1$Disposition))
+sum(is.na(Disposition))
+
+#Total Disposition AMT
+class(NYC1$Total.Disposition.AMT)
+summary(NYC1$Total.Disposition.AMT)
+
+#Total City Payout AMT
+class(NYC1$Total.City.Payout.AMT)
+summary(NYC1$Total.City.Payout.AMT)
+
+#Total City Received AMT
+class(NYC1$Total.City.Received.AMT)
+summary(NYC1$Total.City.Received.AMT)
+
+#Total Expenses
+class(NYC1$Total.Expenses)
+summary(NYC1$Total.Expenses)
+
+
+###More Cleaning: Getting rid of NA values andNarrowing the Scope
+library(dplyr)
+library(stringr)
+library(tidyr)
+df <- NYC1 %>% mutate_if(is.character, toupper) %>%
+  separate(Matter.Name, c("plain","def"), sep = "V[.]|VS[.]|VS")
+
+##Getting Rid of NA values. Due to the vastness of this dataset, I will not be picky about what to remove and ensure I have cases with the necessary information.
+df2 <- df %>% filter(!is.na(df$Court.Name) , !is.na(df$Judge) , !is.na(df$Plaintiffs) , !is.na(df$Defendants) , !is.na(df$LD.Division) , !is.na(df$Lit.Start) , !is.na(df$Closed.Date) , !is.na(df$Disposition), !is.na(df$Total.Disposition.AMT), !is.na(df$Total.City.Payout.AMT), !is.na(df$Total.City.Received.AMT), !is.na(df$Total.Expenses))
+length(df2$plain)
+#This leaves us with 116,408 observations, more than enough.
+
+##Limiting scope to cases where the defendant is the City of New York:
+def <- df2[str_detect(df2$Defendants, "NYC|CITY") == TRUE,]
+# "def" contains 112,942 observations, allowing us to narrow the scope by removing a small fraction of the cases (under 4,000 observations).
+#And now to check that "def" does not contain any cases where the Plaintiff is the City of New York that were not already filtered out.
+plain.check<- def[str_detect(def$Plaintiffs, "NYC|CITY") == TRUE & str_detect(def$Defendants, "NYC|CITY") == FALSE,]
+length(plain.check$plain)
+#There are none.
+#This leaves us with the dataframe "def", containing 112,947 observations.
+
+###Creating New Variable "Length"
+def<- def %>% mutate(length = Closed.Date - Lit.Start)
+summary(def$length)
+mean(def$length)
+max(def$length)
+min(def$length)
+#Here we encounter a problem. There should be no negative values for length. Let's inspect those cases which contain negative length:
+bad<- def[def$length<=0,]
+str(bad)
+#The problem for these cases is in the Lit.Start and Closed.Date dates. it appears that the recorded closing dates are prior to the litigation start dates. This could be a result of entry error, or the date records for these cases are wrong. Thankfully, there are only a small number of them (353), so it is safe to just eliminate these observations from the dataset.
+
+NYC <- def[def$length>0,]
+
+str(NYC)
+summary(NYC)
+
+###Let us now investigate the properties of our important variables in NYC.
+
+length(levels(NYC$Court.Name))
+#*There are 204 Courts distinct courts in which the cases preside.
+
+length(levels(NYC$Judge))
+#*There are 986 Judges presiding over the cases.
+
+length(levels(NYC$App.Court))
+table(NYC$App.Court)
+#*There are 50 types of Appelate Court.
+
+nrow(distinct(NYC, Plaintiffs))
+#There are 13435 distinct plaintiffs and firms.
+
+nrow(distinct(NYC, Defendants)) 
+#There are 58479 distinct defendants/respondents and firms.
+
+summary(NYC$LD.Division)
+plot(table(NYC$LD.Division))
+#The majority of cases are classified as Tort (91718). Appeals (6), Executive (2), and Tax & Bankruptcy (64) all have fewer than 100 cases.
+
+summary(NYC$Lit.Start)
+#The start dates for the cases range from the years 1971 to 2018, with an IQR between 1993 and 2007 and a mean and median in 2000.
+
+summary(NYC$Closed.Date)
+#The closing dates for the cases range from the years 1980 to 2019, with an IQR between 1998 and 2010 and a mean and median in 2004.
+
+summary(NYC$length)
+min(NYC$length)
+max(NYC$length)
+mean(NYC$length)
+median(NYC$length)
+IQR(NYC$length)
+#The length of the cases range from 1 to 14235 days, with and average of 1300.531 days, a median of 1068 days, and an IQR of 1329 days.
+
+summary(NYC$Disposition)
+plot(table(NYC$Disposition))
+#The majority of cases reached Settlement (75929), and 26524 concluded with Zero Disposition. Additionally, 7523 had Administrative Closings and 2613 had an Order/Judgment (Verdict).
+
+summary(NYC$Total.Disposition.AMT)
+plot(NYC$Total.Disposition.AMT, type = "l", main = "Frequency Distribution for Total Disposition AMT", xlab = "Amount in Dollars", ylab = "Frequency")
+nrow(NYC[NYC$Total.Disposition.AMT==0,])
+nrow(NYC[NYC$Total.Disposition.AMT>0,])
+#The majority of cases (76359) resulted in a disposition amount for at least one of the parties involved. 36230 cases resulted in no disposition amount.
+
+summary(NYC$Total.City.Payout.AMT)
+plot(NYC$Total.City.Payout.AMT, type = "l", main = "Frequency Distribution for Total City Payout AMT", xlab = "Amount in Dollars", ylab = "Frequency")
+nrow(NYC[NYC$Total.City.Payout.AMT==0,])
+nrow(NYC[NYC$Total.City.Payout.AMT>0,])
+#The City makes a payout in 72108 cases, with an average of 6000 dollars and an IQR ranging between 0 and 25000 dollars.
+
+summary(NYC$Total.City.Received.AMT)
+plot(NYC$Total.City.Received.AMT, type = "l", main = "Frequency Distribution for Total City Received AMT", xlab = "Amount in Dollars", ylab = "Frequency")
+nrow(NYC[NYC$Total.City.Received.AMT==0,])
+nrow(NYC[NYC$Total.City.Received.AMT>0,])
+mean(NYC$Total.City.Received.AMT[NYC$Total.City.Received.AMT>0])
+#The City receives a payment in only 84 cases, with a mean of those payments being 52860.13.
+
+summary(NYC$Total.Expenses)
+plot(NYC$Total.Expenses, type = "l", main = "Frequency Distribution for Total Expenses", xlab = "Amount in Dollars", ylab = "Frequency")
+nrow(NYC[NYC$Total.Expenses==0,])
+nrow(NYC[NYC$Total.Expenses>0,])
+#The city had 0 total expenses in 54769 cases. The City has a mean Total Expense of 1223.
+
+##Correlations amongst variables
+library(corrplot)
+numeric_variables<-NYC[,12:16]
+numeric_variables$length<-as.numeric(numeric_variables$length)
+corrplot(cor(numeric_variables), method = "number")
+
+#In regards to the numeric attributes, there is only one significant correlation, between Total Disposition AMT and Total City Payout AMT, with a strong positive correlation of 0.89. All other correlations are extremely weak.
+```
