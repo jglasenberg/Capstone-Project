@@ -1,0 +1,586 @@
+---
+title: "Final Project Report"
+author: "Jonathan Glasenberg"
+date: '2019-07-26'
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+###Data Cleaning and Narrowing the Scope
+First, I cleaned the data, eliminated missing/NA values, and focused the dataset on cases where the City of New York is the defendant.
+
+```{r}
+#The data may be found at https://data.cityofnewyork.us/City-Government/Case-Related-Information-About-Civil-Litigation/pjgc-h7uv
+
+NYC2 <- read.csv("Case-Related_Information_About_Civil_Litigation.csv", header = TRUE, na.strings = c("","NA"), stringsAsFactors = F)
+
+NYC2<- NYC2[, - c(2,5,17)]
+
+str(NYC2)
+
+NYC2$Lit.Start<- as.Date(NYC2$Lit.Start, "%m/%d/%Y")
+NYC2$Closed.Date <- as.Date(NYC2$Closed.Date, "%m/%d/%Y")
+
+NYC2$Disposition[grepl("Ze", NYC2$Disposition)] = "Zero Disposition"
+
+names(NYC2)[5]<- "Plaintiffs"
+names(NYC2)[6]<- "Defendants"
+
+library(dplyr)
+library(stringr)
+library(tidyr)
+df <- NYC2 %>% mutate_if(is.character, toupper) %>%
+  separate(Matter.Name, c("plain","def"), sep = "V[.]|VS[.]|VS")
+
+df2 <- df %>% filter(!is.na(df$Court.Name) , !is.na(df$Judge) , !is.na(df$Plaintiffs) , !is.na(df$Defendants) , !is.na(df$LD.Division) , !is.na(df$Lit.Start) , !is.na(df$Closed.Date) , !is.na(df$Disposition), !is.na(df$Total.Disposition.AMT), !is.na(df$Total.City.Payout.AMT), !is.na(df$Total.City.Received.AMT), !is.na(df$Total.Expenses))
+
+length(df2$plain)
+
+def <- df2[str_detect(df2$Defendants, "NYC|CITY") == TRUE,]
+
+def<- def %>% mutate(length = Closed.Date - Lit.Start)
+
+NYC <- def[def$length>0,]
+summary(NYC)
+str(NYC)
+```
+###Exploratory Data Analysis
+##Investigating the Data: Univariate Analysis
+Now let's take a look at the important variables. We will begin with the categorical variables.
+
+#Courts
+There are 38 distinct courts reminaing in the dataset, which include Civil Courts, Supreme Courts, U.S. District Courts, Surrogates Courts, Small Claims Courts, U.S. Bankruptcy Court, and NYCLIS Index Correction. I condensed this variable even further by eliminating the jurisdictions and focusing on the level of court, leaving The vast majority of cases appear in the Supreme Courts and the U.S. District Courts.
+```{r}
+#Court.Name
+#38 distinct courts.
+NYC$Court.Name[grepl("CIVIL", NYC$Court.Name)] = "CIVIL COURT"
+NYC$Court.Name[grepl("SMALL", NYC$Court.Name)] = "SMALL CLAIMS COURT"
+NYC$Court.Name[grepl("SUPREME", NYC$Court.Name)] = "SUPREME COURT"
+NYC$Court.Name[grepl("SURROGATES", NYC$Court.Name)] = "SURROGATES COURT"
+NYC$Court.Name[grepl("U.S. DISTRICT", NYC$Court.Name)] = "U.S. DISTRICT COURT"
+
+NYC$Court.Name<- as.factor(NYC$Court.Name)
+levels(NYC$Court.Name)
+#7 levels of courts remaining.
+table(NYC$Court.Name)
+
+plot(NYC$Court.Name)
+```
+
+#Judges
+There are 760 distinct judges that preside over the 112,589 cases in the dataset. The number of cases per judge range from 1 to 6050, with 195 judges presiding over 100 or more cases and a mean of 148 cases per judge.
+```{r}
+#Judge
+NYC$Judge<- as.factor(NYC$Judge)
+length(levels(NYC$Judge))
+#760 judges
+length(table(NYC$Judge)[table(NYC$Judge)>100])
+mean(table(NYC$Judge))
+```
+
+#Appellate Courts
+There are only 3,049 cases that went to an Appellate court (the rest having NA as a value for that column). There are 22 distinct Appellate courts in the dataset, which include Appellate Division, Appellate Term, Court of Appeals - New York State, U.S. Court of Appeals, and the U.S. Supreme Court.
+```{r}
+#App.Court
+NYC$App.Court<- as.factor(NYC$App.Court)
+sum(!is.na(NYC$App.Court))
+levels(NYC$App.Court)
+#22 app. courts
+table(NYC$App.Court)
+plot(table(NYC$App.Court), main = "Appellate Court Distribution")
+```
+
+#LD.Division
+There are 12 categories of Law Department Division assigned to the cases. The majority of cases are classified as Tort (91718). Appeals (6), Executive (2), and Tax & Bankruptcy (64) all have fewer than 100 cases.
+```{r}
+#LD.Division
+NYC$LD.Division<-as.factor(NYC$LD.Division)
+levels(NYC$LD.Division)
+table(NYC$LD.Division)
+plot(table(NYC$LD.Division), main = "LD Division Distribution")
+```
+
+#Disposition
+There are 4 categories of Disposition: Administrative Closing, Order/Judgment (Verdict), Settlement, and Zero Disposition. The majority of cases reached Settlement (75929), and 26524 concluded with Zero Disposition. Additionally, 7523 had Administrative Closings and 2613 had an Order/Judgment (Verdict).
+```{r}
+#Disposition
+NYC$Disposition<- as.factor(NYC$Disposition)
+levels(NYC$Disposition)
+plot(table(NYC$Disposition), main = "Disposition Distribution")
+```
+Now on to our date and numeric variables:
+
+#Dates
+The start dates for the cases range from the years 1971 to 2018, with an IQR between 1993 and 2007 and a mean and median in 2000.
+The closing dates for the cases range from the years 1980 to 2019, with an IQR between 1998 and 2010 and a mean and median in 2004.
+```{r}
+summary(NYC$Lit.Start)
+
+summary(NYC$Closed.Date)
+```
+#Length
+The length of the cases range from 1 to 14235 days, with and average of 1300.531 days, a median of 1068 days, and an IQR of 1329 days. The distribution is roughly mound-shaped with a slight left skew.
+```{r}
+summary(NYC$length)
+min(NYC$length)
+max(NYC$length)
+mean(NYC$length)
+median(NYC$length)
+IQR(NYC$length)
+Length<- as.numeric(NYC$length)
+summary(Length)
+boxplot(Length)
+plot(density(Length), xlim = c(0,2000), main = "Distribution of Litigation Length")
+```
+
+#Total Disposition Amount
+The majority of cases (76359) resulted in a disposition amount for at least one of the parties involved. 36230 cases resulted in no disposition amount. 
+```{r}
+summary(NYC$Total.Disposition.AMT)
+nrow(NYC[NYC$Total.Disposition.AMT==0,])
+nrow(NYC[NYC$Total.Disposition.AMT>0,])
+plot(NYC$Total.Disposition.AMT, type = "l", main = "Frequency Distribution for Total Disposition AMT", xlab = "Amount in Dollars", ylab = "Frequency", xlim = c(0,50000))
+hist(NYC$Total.Disposition.AMT, main = "Distribution for Total Disposition AMT", xlab = "Amount in Dollars", xlim = c(0,50000), breaks = 30000)
+```
+Due to the significant amount of cases with a total disposition amount of 0 dollars, the distribution is greatly skewed left.
+However when looking just at the cases where the disposition did result in payment, although still skewed left, the distribution is much more mound shaped.
+```{r}
+tdisp<- NYC$Total.Disposition.AMT[NYC$Total.Disposition.AMT>0]
+summary(tdisp)
+hist(tdisp, xlim = c(0,50000), breaks = 15000)
+```
+
+#Total City Received Amount
+The City receives a payment in only 79 cases, with a mean of those payments being 52860. The distribution of payments received by the city is greatly skewed left, with the majority of these cases receiving less than 3000 dollars.
+```{r}
+summary(NYC$Total.City.Received.AMT)
+nrow(NYC[NYC$Total.City.Received.AMT==0,])
+nrow(NYC[NYC$Total.City.Received.AMT>0,])
+mean(NYC$Total.City.Received.AMT[NYC$Total.City.Received.AMT>0])
+
+treceive<- NYC$Total.City.Received.AMT[NYC$Total.City.Received.AMT>0]
+summary(treceive)
+hist(treceive, xlim = c(0,10000), breaks = 4000, main = "Distribution Of The Cases Which Received")
+```
+
+#Total Expenses
+The city had 0 total expenses in 54769 cases. The City has a mean Total Expense of 1223.
+Of the cases where the City had expenses, The IQR ranges from 187 to 739. There is a mean of 2381 dollars and a much smaller median of 187 dollars, resulting in the distribution being left-skewed.
+```{r}
+summary(NYC$Total.Expenses)
+plot(NYC$Total.Expenses, type = "l", main = "Frequency Distribution for Total Expenses", xlab = "Amount in Dollars", ylab = "Frequency")
+hist(NYC$Total.Expenses, xlim = c(0,10000), breaks = 80000)
+nrow(NYC[NYC$Total.Expenses==0,])
+nrow(NYC[NYC$Total.Expenses>0,])
+
+texpense<- NYC$Total.Expenses[NYC$Total.Expenses>0]
+summary(texpense)
+hist(texpense, xlim = c(0,3000), breaks = 1000000, main = "Distribution of Cases That Had Expenses")
+```
+
+#Total City Payout: The Response Variable
+The City makes a payout in 72108 cases, with a mean of 43233 dollars, a median of 6000 and an IQR ranging between 0 and 25000 dollars. There are 25,743 cases in which the payout is over 25000 dollars.
+Of the cases with a payout, the mean payout is 67503 and median is 17500, with a left skew in the distribution as the majority of cases have smaller payout amounts below 40000 dollars.
+```{r}
+summary(NYC$Total.City.Payout.AMT)
+plot(NYC$Total.City.Payout.AMT, type = "l", main = "Frequency Distribution for Total City Payout AMT", xlab = "Amount in Dollars", ylab = "Frequency")
+nrow(NYC[NYC$Total.City.Payout.AMT==0,])
+nrow(NYC[NYC$Total.City.Payout.AMT>0,])
+nrow(NYC[NYC$Total.City.Payout.AMT>25000,])
+hist(NYC$Total.City.Payout.AMT, xlim = c(0, 50000), breaks = 10000, main = "Distribution of Total City Payout")
+```
+
+```{r}
+tpayout<- NYC$Total.City.Payout.AMT[NYC$Total.City.Payout.AMT > 0]
+summary(tpayout)
+hist(tpayout, xlim = c(0, 50000), breaks = 15000, main = "Distribution of City Payout Where Payout Was Made")
+```
+
+#Variation in Total City Payout within Categorical Variables
+Due the skewed distribution in the variables, I will be using the Kruskall Wallis test to test the statistical significance in the differences of City Payout between categories for Court Name, Judge, Appellate Court, LD Division, and Disposition.
+```{r}
+kruskal.test(Total.City.Payout.AMT~Court.Name, data = NYC)
+#There is a significant difference in City Payout amongst the various courts.
+
+kruskal.test(Total.City.Payout.AMT~Judge, data = NYC)
+#There is a significant difference in City Payout amongst the various judges.
+
+kruskal.test(Total.City.Payout.AMT~App.Court, data = NYC)
+#There is a significant difference amongst Appellate courts.
+
+kruskal.test(Total.City.Payout.AMT~LD.Division, data = NYC)
+#There is a significant difference in City Payout amongst LD.Division.
+
+kruskal.test(Total.City.Payout.AMT~Disposition, data = NYC)
+#There is a significant difference in City Payout amongst Disposition.
+```
+Of the 5 categorical variables, all have a statistically significant difference in Total City Payout Amount between their various treatments/categories.
+
+##Investigating the Data: Bivariate and Multivariate Analysis
+#Correlations amongst numeric variables
+In regards to the numeric attributes, there is only one significant correlation, between Total Disposition AMT and Total City Payout AMT, with a strong positive correlation of 0.89. This was expected, as the amounts in Total City Payout AMT would be included in Total Disposition AMT, although Total Disposition AMT includes other payments besides what the City would pay.
+All other correlations are extremely weak.
+```{r}
+library(corrplot)
+numeric_variables<-NYC[,12:16]
+numeric_variables$length<-as.numeric(numeric_variables$length)
+corrplot(cor(numeric_variables), method = "number")
+```
+By using a spearman correlation to analyze the relationship the variables share with "Length" (the only numeric variable not in the unit of dollars, but in days), there appears to be a weak positive correlation between Length and Total Expensese, with a coefficient of 0.41. It would seem sensible that the total expenses for litigation would increase the longer the litigation proceedings take.
+```{r}
+corrplot(cor(numeric_variables, method = "spearman"), method = "number")
+```
+
+##Scatterplots
+#Total City Payout Amount vs. Received
+As we learned above, there is a strong positive correlation between Total Disposition Amount and Total City Payout Amount.
+```{r}
+plot(NYC$Total.City.Payout.AMT,NYC$Total.Disposition.AMT, main = "Total.Disposition.AMT vs. Total.City.Payout.AMT")
+```
+
+#Total City Payout Amount vs. Total Expenses
+There appears to be a trend that the Total Expenses are generally higher when the Payout Amount is lower.
+```{r}
+plot(NYC$Total.City.Payout.AMT,NYC$Total.Expenses, xlim = c(0, 400000), ylim = c(0,10000), main = "Total.City.Payout.AMT vs. Total.Expenses")
+```
+#Total City Payout Amount vs. Length
+It appears that the higher payouts have shorter litigation lengths.
+```{r}
+plot(NYC$Total.City.Payout.AMT,NYC$length, ylim = c(0,6000), xlim = c(0,1000000), main = "Total.City.Payout.AMT vs. Length")
+```
+
+#Total Expenses vs. Length
+With smaller values of Total Expenses, the length of litigation varies. When the expenses increase, the length converges to to a middle point below the mean. There is a weak, potentially non-linear relationship between these two variables.
+```{r}
+plot(NYC$Total.Expenses, NYC$length, xlim = c(0,40000), ylim = c(0,8000), main = "Total.Expenses vs. Length")
+```
+
+##Clustering
+In another attempt at exploring the dataset, I will apply the K-Modes clustering algorithm on the various attributes of the dataset.
+To determine the optimal number of clusters, I will use the Elbow Method to compare Within Sum of Squared Errors and select the best value of k. 
+```{r}
+library(klaR)
+cl_nyc <- NYC[,-c(1,2,5,6,7)]
+cl_nyc$length<-as.numeric(cl_nyc$length)
+
+bestk<-function(a) {
+k<- kmodes(cl_nyc, modes = a)
+withinss<- sum(k$withindiff)
+print(withinss)
+}
+
+#bestk(2): 939323
+#bestk(3): 884083
+#bestk(4): 839457
+#bestk(5): 786782
+#bestk(6): 814263
+#bestk(7): 815618
+#bestk(8): 780898
+#bestk(9): 852875
+#bestk(10): 824928
+#bestk(11): 776197
+#bestk(12): 761050
+#bestk(13): 793754
+
+bk<- data.frame(k = c(seq(2,13)), withinss = c(939323,884083,839457,786782,814263,815618,780898,852875,824928,776197,761050,793754))
+plot(bk, xlim = c(2,13), ylim = c(700000,1000000), main = "Elbow Method")
+```
+With a Within Sum of Squared Errors of approximately 786782, k=5 appears to be the optimal number of clusters using the kmodes algorithm.
+
+```{r}
+nyc_kmodes<- kmodes(data = cl_nyc, 5)
+nyc_kmodes$modes
+```
+In regards to our response variable of Total City Payout AMT, three distinct groups emerge:
+-Group 1: clusters 1 and 3 have higher centroids of 15000;
+-Group 2:cluster 4 has a mid-level centroid of 7500;
+-Group 3:clusters 2 and 5 have lower centroids of 0 and 1500, respectively.
+
+Other notable differences in the clusters include:
+-In terms of Court, cluster 3 stands out with U.S. District Court, while the rest fall under Supreme Court.
+-Clusters 4 and 5 share a distinct Judge (Levine, Alan).
+-Cluster 3 stands out with Special Federal Litigation as its LD Division, while the remaining clusters all fall under Tort.
+-Cluster 2 has a unique Disposition of Zero Disposition, while the remaining clusters all fall under Settlement.
+-The clusters are divided in litigation length, with clusters 1,4, and 5 having lengthier litigations of approximately 1000 days, while cluster 2 and 3 have shorter litigations of approximately 200 to 300 days.
+- All of the clusters have high Total Disposition Amounts except for cluster 2, which has 0.
+-All of the clusters have 0 for Total City Received Amount.
+
+These general trends also appear when comparing to clustering applications with a slightly varied value of k.
+When looking at the clusters when k=6 (which was quite close to k=5 on at the bend in the plot above), the patterns connecting Disposition of Zero Disposition + 0 City Payout, LD Division of Special Federal Litigation + high values of City Payout, and U.S. District Court + high City Payout still occur.
+```{r}
+nyc_kmodes6<- kmodes(data = cl_nyc, 6)
+nyc_kmodes6$modes
+```
+The trends amongst the clusters allow us to interpret the data and see the groups of cases that begin to form:
+
+-High values of City Payout, LD Division of Special Federal Litigation, and in the U.S. District Court.
+-High to medium values of City Payout, LD Division of Tort, in the Supreme Court, and a Disposition of Settlement.
+-Low levels to 0 City Payout, shorter litigation lengths, and a Disposition of Zero Disposition.
+
+####Building a Model to Predict the City of New York making a payout
+#Creating the Payout target variable
+By using Total City Payout AMT, we can create a binary variable of Payout, where cases that made no payout get a value of 0 and cases that had any payout greater than 0 get a value of 1.
+The City made a payout in 72,108 cases, and did not in 40481.
+```{r}
+NYC$payout<-ifelse(NYC$Total.City.Payout.AMT>0,1,0)
+table(NYC$payout)
+hist(NYC$payout, breaks = 2, main = "Payout")
+```
+
+
+```{r}
+xtabs(~payout + Disposition, data = NYC)
+xtabs(~payout + LD.Division, data = NYC)
+xtabs(~payout +Court.Name, data = NYC)
+```
+
+
+In addition to Total.City.Payout.AMT, the binary variable "Payout" will be created to act as the response varibale in the binary classification model.
+
+To avoid problems in the predictive model, I will also need to remove certain outliers belonging to the minority categories of Court.Name. Due to the infrequency of NYCLIS INDEX CORRECTION (2 cases), SMALL CLAIMS COURT (27 cases), SURROGATES COURT (3 cases), and U.S. BANKRUPTCY COURT - EASTERN DISTRICT NY (1 case), selecting a random sample for testing and training datasets can result in certain minority categories can occur in the test set but not the train set, causing an error. Similar issues occur with Judge and App.Court.
+
+This leaves us with 3 categories of Court.Name (CIVIL COURT, SUPREME COURT, and U.S. DISTRICT COURT) and 112,556 observations.
+
+```{r}
+NYC3 <- def[def$length>0,]
+NYC3$Court.Name[grepl("CIVIL", NYC3$Court.Name)] = "CIVIL COURT"
+NYC3$Court.Name[grepl("SMALL", NYC3$Court.Name)] = "SMALL CLAIMS COURT"
+NYC3$Court.Name[grepl("SUPREME", NYC3$Court.Name)] = "SUPREME COURT"
+NYC3$Court.Name[grepl("SURROGATES", NYC3$Court.Name)] = "SURROGATES COURT"
+NYC3$Court.Name[grepl("U.S. DISTRICT", NYC3$Court.Name)] = "U.S. DISTRICT COURT"
+
+#Limiting the dataset to the main 3 categories of Court.Name:
+NYC3<- NYC3[NYC3$Court.Name == "CIVIL COURT" | NYC3$Court.Name == "SUPREME COURT" | NYC3$Court.Name == "U.S. DISTRICT COURT",]
+
+
+NYC3$Court.Name<- as.factor(NYC3$Court.Name)
+NYC3$Judge<- as.factor(NYC3$Judge)
+NYC3$App.Court<- as.factor(NYC3$App.Court)
+NYC3$LD.Division<-as.factor(NYC3$LD.Division)
+NYC3$Disposition<- as.factor(NYC3$Disposition)
+NYC3$length<-as.numeric(NYC3$length)
+
+NYC3$payout<-ifelse(NYC3$Total.City.Payout.AMT>0,1,0)
+```
+
+Total Disposition AMT will be excluded from the prediction models due to its strong positive correlation to our response variable Total City Payout AMT.
+
+The Judge variable will not be used in the prediction models due to the vast number of categories it has, representing the many individual judges. There are many judges with very few cases, which will cause errors in the predictive models; the model would be trained on a random sample of data and then applied to a test set that would contain Judge values that do not appear in the training set.
+This problem also occurs with App.Court. However, I will substitute App.Court with the binary variable of "appeal", where 1 represents a case which went to an Appellate Court and 0 represents a case that did not.
+
+```{r}
+NYC3$appeal<-ifelse(!is.na(NYC3$App.Court), 1, 0)
+table(NYC3$appeal)
+hist(NYC3$appeal, breaks = 2, xlim = c(0,1), ylim = c(0,60000))
+```
+
+#Normalizing the Numeric Variables
+While most of the numeric variables are in the same unit, dollars, "length" is a measurement in days. Therefore, it is necessary to normalize the numeric variables to have them on the same scale.
+```{r}
+normalize <- function(x) {return ((x - mean(x)) / (sd(x)))}
+norm_nyc<- as.data.frame(lapply(NYC3[14:16], normalize))
+
+nyc_data <- as.data.frame(cbind(NYC3[,c(3,8,11,17,18)], norm_nyc, NYC3$Total.City.Payout.AMT))
+colnames(nyc_data)[9]<-"Total.City.Payout.AMT"
+```
+
+We are now ready to build the models.
+
+###Binary/Classification Prediction
+##Logistic Regression to Predict Probability of Payout
+
+#Divide the data into training and testing sets and building the model
+
+I will take a random sample of 70% of the observations for training when partitioning the data.
+
+```{r}
+#logit regression
+pay<- nyc_data[,1:8]
+
+set.seed(42)
+train_index <- sample(1:nrow(pay), 0.7 * nrow(pay))
+train.set <- pay[train_index,]
+test.set  <- pay[-train_index,]
+
+train.set_new <- train.set[-4]
+test.set_new <- test.set[-4]
+
+payout_train_labels <- train.set$payout 
+payout_test_labels <- test.set$payout
+
+payout_model <- glm(as.factor(payout) ~ Court.Name + LD.Division + Disposition + appeal + Total.City.Received.AMT + Total.Expenses + length, data = train.set, family = "binomial")
+summary(payout_model)
+#Significant predictors: Court.Name, LD.Division (for Commercial/RE Litigation, General Litigation, Labor and Employment, Special Federal Litigation, Tax & Bankruptcy, and Tort), and appeal.
+pR2(payout_model)["McFadden"]
+#McFadden's R-Squared, which compares the ratio between the log likelihood value of the fitted model versus the log likelihood for the null model with only an intercept as a predictor, gives a value between 0 (no predictive power) and 1 (strong predictive power). payout_model has a McFadden R-Squared of 0.7615205.
+
+predicted<- predict(payout_model, newdata = test.set_new, type = "response")
+hist(predicted)
+plot(density(predicted))
+predicted_V1 <- ifelse(predicted>0.8, 1, 0)
+confusionMatrix_V1 <- table(actual = test.set$payout, predicted = predicted_V1)
+sum(diag(confusionMatrix_V1))/nrow(test.set)
+
+confusionMatrix(confusionMatrix_V1)
+plot(test.set$payout, predicted)
+
+###does not change significantly when prediction level threshold is adjusted. Accuracy only drops significantly once threshold is at 0.0000001% probability.
+#The model gives extremely high probabilities to virtually all cases that actually are payout, and extermely low to the majority of non-payout cases.
+#This Logistic Regression Model is a good predictor of whether the city would need to make a payout or not. However, these results could be occuring due to the inherent traits of the data and not the quality of the predictors.
+
+
+#AUCROC
+prediction(predicted_V1, test.set$payout) %>%
+performance(measure = "tpr", x.measure = "fpr") %>%
+plot()
+#AUC
+prediction(predicted_V1, test.set$payout) %>%
+performance(measure = "auc") %>%
+.@y.values
+```
+
+
+#Comparing to a reduced model
+Let us compare the above model to one with reduced dimensions, focusing on the statistically significant variables from the above model: Court Name and LD Division.
+
+```{r}
+#compare to a reduced model:
+
+payout_reduced <- glm(as.factor(payout) ~ Court.Name + LD.Division + appeal, data = train.set, family = "binomial")
+summary(payout_reduced)
+#Still significant predictors
+#has much higher Residual Deviance and AIC (so the first one would appear to be better - with more predictors)
+
+predicted2<- predict(payout_reduced, newdata = test.set_new, type = "response")
+
+predicted_V2 <- ifelse(predicted2>=0.8, 1, 0)
+confusionMatrix_V2 <- table(actual = test.set$payout, predicted = predicted_V2)
+sum(diag(confusionMatrix_V2))/nrow(test.set) 
+#much lower accuracy - around 47%, and when threshold put very low only gets up to 64%
+pR2(payout_reduced)["McFadden"]
+#The reduced model also has a lower McFadden R-Squared of 0.1088715
+anova(payout_model,payout_reduced, test = "Chisq")
+library(lmtest)
+lrtest(payout_model,payout_reduced)
+#The Likelihood Ratio Test, Accuracy in model performance, and Mcfadden R-Squared values all suggest that there is a significant difference between the full model and the reduced model, and adding preditor variables significantly improve predicting the log probability of payout.
+```
+
+##Random Forest Trees
+In contrast to Logistic Regression, I will use the Random Forest algorithm to predict payout.
+I will use 10-Fold Cross Validation as the experimental design.
+
+```{r}
+library(caret)
+rfmod<- train(as.factor(payout) ~ Court.Name + LD.Division + Disposition + appeal + Total.City.Received.AMT + Total.Expenses + length, pay, method = "rf",
+              trControl = trainControl(method = "cv", number = 10, verboseIter = TRUE))
+rfmod
+summary(rfmod)
+rfmod$resample
+confusionMatrix(rfmod)
+
+rf_pred<- predict(rfmod, pay)
+cm_rf<-confusionMatrix(rf_pred, as.factor(pay$payout))
+#Random Forest Tree is also a good classifier for payout, with an accuracy of 95.6% when mtry=11.
+#The final model has 500 trees, has 11 variables tried at each split (mtry), with an accuracy of 95.6% and an Out of Bag Estimate of Error Rate of 4.39%.
+```
+
+
+##Summary
+Both logistic regression and Random Forest Trees are strong predictors of City Payout on a binary level. However, due to the nature of the dataset - containg many categorical variables - random forest is most likely the better fit to predict payout on a binary level. The data may not be linearly seperable and a line of best fit may not draw accurate conclusions from the data, whereas a random forest design for data with a nonlinear relationship and can split at different midpoints of each variable.
+
+###Regression Model to Predict Total City Payout Amount
+##Multiple Linear Regression
+10-Fold Cross Validation with AIC Stepwise Feature Selection.
+```{r}
+city_payout<- nyc_data[,-4]
+
+set.seed(42)
+
+#generalized linear model with stepwise feature selection
+mlr<- train(Total.City.Payout.AMT ~ Court.Name + LD.Division + Disposition + appeal + Total.City.Received.AMT + Total.Expenses + length, city_payout, method = "glmStepAIC",
+              trControl = trainControl(method = "cv", number = 10, verboseIter = TRUE))
+
+summary(mlr)
+mlr$finalModel
+mlr$resample
+mean(mlr$resample$Rsquared)
+sd(mlr$resample$Rsquared)
+
+predict_mlr <- predict(mlr, city_payout)
+errors<- predict_mlr-city_payout$Total.City.Payout.AMT
+hist(errors, xlim = c(0,100000), breaks = 10000, main = "GLM Error")
+
+RMSE(predict_mlr, city_payout$Total.City.Payout.AMT)
+
+#RMSE      Rsquared    MAE     
+#398877.4  0.06529675  60516.02
+#R2 represents the proportion of variance, in the outcome variable y, that may be predicted by knowing the value of the x variables. An R2 value close to 1 indicates that the model explains a large portion of the variance in the outcome variable. here, very low R2, model not a good predictor.
+
+
+```
+###Random Forest Regression
+The need for k-fold cross validation comes from a sufficiently limited sample size. Due to the very large size of the dataset, it requires too much computational power to process 10 fold cross validaiton for a random forest regression. Instead, I will use a 2 fold cross validation, still ensuring that the model is trained and tested to the optimal parameters and performance, while realistically handling the vast dataset.
+```{r}
+set.seed(24)
+
+rf_regression<- caret::train(Total.City.Payout.AMT ~ Court.Name + LD.Division + Disposition + appeal + Total.City.Received.AMT + Total.Expenses + length, city_payout, method = "rf", trControl = trainControl(method = "cv", number = 2, verboseIter = TRUE))
+rf_regression
+# optimal model: mtry = 11, RMSE = 310737.4, r2 = 0.1870146, MAE = 45002.84
+
+predict_rf <- predict(rf_regression, city_payout)
+errors_rf<- predict_rf-city_payout$Total.City.Payout.AMT
+summary(errors_rf)
+hist(errors_rf, xlim = c(0,100000), breaks = 10000, main = "Random Forest Errors")
+```
+
+
+###Regression with transformed data
+```{r}
+hist(NYC3$Total.City.Payout.AMT, xlim = c(0, 50000), breaks = 10000, main = "Distribution of Total City Payout")
+
+#Total City Payout AMT is very skewed, which could be why the binary classification models were successful but these regression models are not.
+#Let us now try regression models on a non-skewed target variable by transforming Total.City.Payout.AMT to its log.
+payout_transformed<- as.data.frame(cbind(city_payout[,1:7], log(city_payout$Total.City.Payout.AMT+1)))
+colnames(payout_transformed)[8]<-"log.payout.amt"
+summary(payout_transformed$log.payout.amt)
+hist(payout_transformed$log.payout.amt)
+#log.payout.amt has a normal distribution.
+
+linear_reg<- train(log.payout.amt ~ ., data = payout_transformed, method = "glm", trControl = trainControl(method = "cv", number = 10, verboseIter = TRUE))
+linear_reg
+summary(linear_reg)
+
+predict_glm <- predict(linear_reg, payout_transformed)
+hist(predict_glm, main = "Distribution of Predicted Values for GLM on Transformed Data")
+errors_glm<- predict_glm-payout_transformed$log.payout.amt
+summary(errors_glm)
+hist(errors_glm, main = "GLM on Transformed Data Errors")
+
+pr_doll_lm<- 10^predict_glm
+err_doll_lm<- pr_doll_lm - city_payout$Total.City.Payout.AMT
+summary(err_doll_lm)
+hist(err_doll_lm)
+```
+
+```{r}
+rf_transformed<- train(log.payout.amt ~ ., payout_transformed, method = "rf", trControl = trainControl(method = "cv", number = 2, verboseIter = TRUE))
+rf_transformed
+summary(rf_transformed)
+
+predict_rtran <- predict(rf_transformed, payout_transformed)
+hist(predict_rtran, main = "Distribution of Predicted Values for RF on Transformed Data")
+errors_rtran<- predict_rtran-payout_transformed$log.payout.amt
+summary(errors_rtran)
+hist(errors_rtran, main = "RF on Transformed Data Errors")
+```
+Despite a promising R^2 values, I do not believe these regression models are good predictors of Total City Payout Amount.
+After a log transformation, they are unit-free. The meaning behind the evaluation measures of RMSE and MAE are now different. They are now telling us about the size in percentage on the original scale. The MAE is now telling us the percentage the original value would deviate from the geometric mean. These are considerably high.
+	Evaluating the distribution of errors, it seems that the transformed data solved the right skew and resulted in normal distributions.However, we may get a sense of model performance by examining the distributions of the predicted values. Although they are the log predictions, compared to the original transformed data, a similar problem is occurring. The models can predict the low to none cases of payout, but are again inaccurate with higher values. The distributions below show peaks of greater values that are significantly greater than that of the distribution of the actual transformed values we previously examined.
+	
+####Conclusion
+Given the vast amount of data provided by the City of New York regarding its civil litigation cases, determining the best method of predicting the relevant case results for the City concluded with mixed results. On a binary classification level, I was able to build models that successfully predicted city payout. However, the regression models struggled to predict the actual amounts in dollars that the disposition would result in. This could be due to the variables not being consistently or linearly related to the target variable of Total City Payout Amount, or the skewed distribution of Total City Payout Amount. When attempting regression on a transformed Total City Payout Amount, the models appeared to have improved performance, but ultimately were not accurate predictors of City Payout. Perhaps the information provided in the dataset is insufficient to draw proper conclusions about the relationship between the independent variables and our response variable.
+	Further steps could be taken to build a better predictive model, including the use of more complex machine learning algorithms and an expanded version of this dataset that could provide additional coherent information, such as a rated score for each judge based on their history of rulings and information from the actual court cases and their proceedings.
+	There was, however, much to learn from the dataset. There were clear trends and relationships between the variables and the clusters that emerged. This may not be enough to predict the actual amount in dollars, but it does provide a general picture of the differences between cases in which New York City makes a payout and those in which it does not, and resulted in a strong binary predictor.
